@@ -2,6 +2,7 @@ module Main where
 import System.Environment
 import Control.Monad
 import Control.Monad.Error
+import IO hiding (try)
 import Text.ParserCombinators.Parsec hiding (spaces)
 
 data LispVal = Atom String
@@ -21,34 +22,6 @@ data LispError = NumArgs Integer [LispVal]
 
 symbol :: Parser Char
 symbol = oneOf "#!$%&|*+-/:<=>?@^_-"
-
-primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
-primitives = [("+", operator (+)),
-              ("-", operator (-)),
-              ("*", operator (*)),
-              ("/", operator div),
-              ("mod", operator mod),
-              ("quotient", operator quot),
-              ("remainder", operator rem),
-              ("=", numBoolBinop (==)),
-              ("<", numBoolBinop (<)),
-              (">", numBoolBinop (>)),
-              ("/=", numBoolBinop (/=)),
-              (">=", numBoolBinop (>=)),
-              ("<=", numBoolBinop (<=)),
-              ("&&", boolBoolBinop (&&)),
-              ("||", boolBoolBinop (||)),
-              ("string=?", strBoolBinop (==)),
-              ("string<?", strBoolBinop (<)),
-              ("string>?", strBoolBinop (>)),
-              ("string<=?", strBoolBinop (<=)),
-              ("string>=?", strBoolBinop (>=)),
-              ("car", car),
-              ("cdr", cdr),
-              ("cons", cons),
-              ("eq?", eqv),
-              ("eqv?", eqv),
-              ("equal?", equal)]
 
 operator :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 operator op singleVal@[_] = throwError $ NumArgs 2 singleVal
@@ -179,6 +152,34 @@ equal [arg1, arg2] = do
       return $ Bool $ (primitiveEquals || let (Bool x) = eqvEquals in x)
 equal badArgList = throwError $ NumArgs 2 badArgList
 
+primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
+primitives = [("+", operator (+)),
+              ("-", operator (-)),
+              ("*", operator (*)),
+              ("/", operator div),
+              ("mod", operator mod),
+              ("quotient", operator quot),
+              ("remainder", operator rem),
+              ("=", numBoolBinop (==)),
+              ("<", numBoolBinop (<)),
+              (">", numBoolBinop (>)),
+              ("/=", numBoolBinop (/=)),
+              (">=", numBoolBinop (>=)),
+              ("<=", numBoolBinop (<=)),
+              ("&&", boolBoolBinop (&&)),
+              ("||", boolBoolBinop (||)),
+              ("string=?", strBoolBinop (==)),
+              ("string<?", strBoolBinop (<)),
+              ("string>?", strBoolBinop (>)),
+              ("string<=?", strBoolBinop (<=)),
+              ("string>=?", strBoolBinop (>=)),
+              ("car", car),
+              ("cdr", cdr),
+              ("cons", cons),
+              ("eq?", eqv),
+              ("eqv?", eqv),
+              ("equal?", equal)]
+
 instance Show LispVal where show = showVal
 unwordsList :: [LispVal] -> String
 unwordsList = unwords . map showVal
@@ -208,6 +209,28 @@ showError (NumArgs expected found) = "Expected " ++ show expected ++ " arguments
 showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected ++ ", found " ++ show found
 showError (Parser parseErr) = "Parse error at " ++ show parseErr
 
+flushStr :: String -> IO ()
+flushStr str = putStr str >> hFlush stdout
+
+readPrompt :: String -> IO String
+readPrompt prompt = flushStr prompt >> getLine
+
+evalString :: String -> IO String
+evalString expr = return $ extractValue $ trapError (liftM show $ readExpr expr >>= eval)
+
+evalAndPrint :: String -> IO ()
+evalAndPrint expr = evalString expr >>= putStrLn
+
+until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
+until_ pred prompt action = do
+       result <- prompt
+       if pred result
+          then return ()
+          else action result >> until_ pred prompt action
+
+runRepl :: IO ()
+runRepl = until_ (== "quit") (readPrompt "Valence>> ") evalAndPrint
+
 readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExpr "lisp" input of
          Left err -> throwError $ Parser err
@@ -232,7 +255,8 @@ eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 main :: IO ()
-main = do
-     args <- getArgs
-     evaled <- return $ liftM show $ readExpr (args !! 0) >>= eval
-     putStrLn $ extractValue $ trapError evaled
+main = do args <- getArgs
+          case length args of
+               0 -> runRepl
+               1 -> evalAndPrint $ args !! 0
+               otherwise -> putStrLn "Program takes only 0 or 1 arguments"
