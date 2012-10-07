@@ -2,7 +2,7 @@ module Main where
 import System.Environment
 import Control.Monad
 import Control.Monad.Error
-import IO hiding (try)
+import System.IO
 import Data.IORef
 import Text.ParserCombinators.Parsec hiding (spaces)
 
